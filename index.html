@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="실내가 포함된 차량 3D 쇼룸 프로토타입: 차량 외관, 실내, 휠 디테일을 확인합니다."
+    />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23151514'/%3E%3Cpath d='M12 37h5l5-11h20l5 11h5v8h-5a6 6 0 0 1-12 0H29a6 6 0 0 1-12 0h-5z' fill='%23f05a3b'/%3E%3Cpath d='M24 29h16l3 7H21z' fill='%234bb8a9'/%3E%3C/svg%3E" />
+    <title>Car 3D Showroom Prototype</title>
+  </head>
+  <body>
+    <div id="app">
+      <section id="embed-stage" class="embed-stage" aria-label="실차 3D 모델 임베드">
+        <iframe
+          id="sketchfab-frame"
+          title="실차 3D 모델"
+          allow="autoplay; fullscreen; accelerometer; gyroscope; magnetometer; xr-spatial-tracking"
+        ></iframe>
+      </section>
+
+      <header class="topbar">
+        <div class="identity">
+          <span class="eyebrow">3D showroom prototype</span>
+          <h1>차종 3D 뷰어</h1>
+        </div>
+        <nav class="view-tabs" aria-label="시점 선택">
+          <button class="view-tab is-active" data-view="exterior" type="button">외관</button>
+          <button class="view-tab" data-view="interior" type="button">실내</button>
+          <button class="view-tab" data-view="wheel" type="button">휠</button>
+        </nav>
+      </header>
+
+      <section class="model-panel" aria-label="모델 정보">
+        <p id="model-kicker" class="model-kicker">Sketchfab embed</p>
+        <h2 id="model-title">Generic Hatchback with Interior</h2>
+        <p id="model-description">
+          실내, 문, 트렁크, 페달, 기어, 스티어링 휠이 포함된 테스트용 해치백 모델입니다.
+        </p>
+        <div class="panel-actions">
+          <button id="rotate-toggle" class="control-button" type="button" aria-pressed="false">자동 회전 끔</button>
+          <button id="reset-view" class="control-button ghost" type="button">리셋</button>
+        </div>
+        <a
+          id="source-link"
+          class="source-link"
+          href="https://sketchfab.com/3d-models/car-generic-hatchback-gameready-with-interior-9d21deaa0174412283965baf323133a1"
+          target="_blank"
+          rel="noreferrer"
+        >
+          모델 출처 보기
+        </a>
+      </section>
+
+      <p id="status" class="status" role="status">차량 모델을 불러오는 중입니다.</p>
+    </div>
+    <script src="https://static.sketchfab.com/api/sketchfab-viewer-1.12.1.js"></script>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
