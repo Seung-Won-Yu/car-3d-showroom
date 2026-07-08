@@ -3,6 +3,8 @@
 실내가 포함된 차량 3D 모델을 웹에서 바로 확인하는 쇼룸 프로토타입입니다.  
 외관, 실내, 휠 시점을 버튼으로 전환하고, Sketchfab Viewer API의 annotation을 이용해 실제 모델의 디테일 포인트로 이동합니다.
 
+**Live Demo:** https://seung-won-yu.github.io/car-3d-showroom/
+
 ![차종 3D 뷰어 미리보기](docs/preview.png)
 
 ## 주요 기능
