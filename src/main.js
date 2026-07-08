@@ -32,10 +32,20 @@ const MODEL = {
     desktop: {
       position: [3.85, -0.55, 0.88],
       target: [0.33, -0.34, 0.1],
+      bounds: {
+        maxDistance: 4.15,
+        maxTargetDelta: 0.55,
+        maxHeightDelta: 0.75,
+      },
     },
     mobile: {
       position: [11.5, -0.85, 2.0],
       target: [0.33, -0.34, 0.1],
+      bounds: {
+        maxDistance: 11.55,
+        maxTargetDelta: 0.85,
+        maxHeightDelta: 1.1,
+      },
     },
   },
 };
@@ -50,6 +60,8 @@ let autoSpin = false;
 let spinAngle = 0;
 let spinTimer = null;
 let resizeTimer = null;
+let cameraGuardTimer = null;
+let isRestoringExteriorCamera = false;
 
 function setStatus(message) {
   statusEl.textContent = message;
@@ -124,6 +136,58 @@ function getExteriorCamera() {
   };
 }
 
+function getExteriorPreset() {
+  return window.innerWidth < 700 ? MODEL.exteriorCamera.mobile : MODEL.exteriorCamera.desktop;
+}
+
+function getDistance(a, b) {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
+function isOutsideExteriorBounds(cameraState) {
+  const preset = getExteriorPreset();
+  const position = cameraState?.position;
+  const target = cameraState?.target;
+
+  if (!position || !target) return false;
+
+  const presetDistance = getDistance(preset.position, preset.target);
+  const currentDistance = getDistance(position, target);
+  const targetDrift = getDistance(target, preset.target);
+  const heightDrift = Math.abs(position[2] - preset.position[2]);
+
+  return (
+    currentDistance > preset.bounds.maxDistance ||
+    currentDistance < presetDistance * 0.42 ||
+    targetDrift > preset.bounds.maxTargetDelta ||
+    heightDrift > preset.bounds.maxHeightDelta
+  );
+}
+
+function restoreExteriorCamera(reason = "외관 최대 범위", duration = 0.45) {
+  if (!sketchfabApi || !sketchfabReady || isRestoringExteriorCamera) return;
+
+  const camera = getExteriorCamera();
+  isRestoringExteriorCamera = true;
+  sketchfabApi.hideAnnotationTooltips?.();
+  sketchfabApi.unselectAnnotation?.();
+  sketchfabApi.setCameraLookAt(camera.position, camera.target, duration, (error) => {
+    isRestoringExteriorCamera = false;
+    if (!error) {
+      setStatus(`${MODEL.title}: ${reason} 안으로 돌아왔습니다.`);
+    }
+  });
+}
+
+function guardExteriorCamera() {
+  if (!sketchfabApi || !sketchfabReady || activeView !== "exterior" || autoSpin) return;
+
+  sketchfabApi.getCameraLookAt((error, cameraState) => {
+    if (error || !isOutsideExteriorBounds(cameraState)) return;
+    restoreExteriorCamera();
+  });
+}
+
 function stopAutoSpin() {
   autoSpin = false;
   if (spinTimer) {
@@ -144,17 +208,7 @@ function moveCamera(viewName) {
   }
 
   if (viewName === "exterior") {
-    const camera = getExteriorCamera();
-    sketchfabApi.hideAnnotationTooltips?.();
-    sketchfabApi.unselectAnnotation?.();
-    sketchfabApi.setCameraLookAt(camera.position, camera.target, 0.8, (error) => {
-      if (error) {
-        setStatus(`${MODEL.title}: 외관 시점 이동에 실패했습니다. 잠시 후 다시 눌러보세요.`);
-        return;
-      }
-
-      setStatus(`${MODEL.title}: 외관 근접 시점으로 이동했습니다.`);
-    });
+    restoreExteriorCamera("외관 고정 프레임", 0.8);
     return;
   }
 
@@ -264,6 +318,10 @@ function initViewer() {
       api.addEventListener("viewerready", () => {
         sketchfabReady = true;
         api.setCameraEasing?.("easeOutCubic");
+        api.addEventListener("camerastop", () => {
+          clearTimeout(cameraGuardTimer);
+          cameraGuardTimer = setTimeout(guardExteriorCamera, 140);
+        });
         api.getCameraLookAt((cameraError, cameraState) => {
           if (!cameraError && cameraState) {
             sketchfabDefaultCamera = cameraState;
@@ -273,7 +331,16 @@ function initViewer() {
             if (import.meta.env.DEV) {
               window.showroomDebug = {
                 getAnnotations: () => sketchfabAnnotations,
-                getCamera: () => sketchfabDefaultCamera,
+                getDefaultCamera: () => sketchfabDefaultCamera,
+                getCurrentCamera: () =>
+                  new Promise((resolve) => {
+                    sketchfabApi.getCameraLookAt((error, camera) => {
+                      resolve(error ? null : camera);
+                    });
+                  }),
+                forceCamera: (position, target) =>
+                  sketchfabApi.setCameraLookAt(position, target, 0.1),
+                guardExteriorCamera,
               };
             }
             moveCamera(pendingView);
