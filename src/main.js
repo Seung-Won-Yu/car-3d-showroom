@@ -32,6 +32,12 @@ const MODEL = {
     desktop: {
       position: [3.85, -0.55, 0.88],
       target: [0.33, -0.34, 0.1],
+      constraints: {
+        zoomIn: 2.35,
+        zoomOut: 4.15,
+        up: 0.88,
+        down: -0.24,
+      },
       bounds: {
         maxDistance: 4.15,
         maxTargetDelta: 0.55,
@@ -41,6 +47,12 @@ const MODEL = {
     mobile: {
       position: [11.5, -0.85, 2.0],
       target: [0.33, -0.34, 0.1],
+      constraints: {
+        zoomIn: 7.8,
+        zoomOut: 11.55,
+        up: 0.9,
+        down: -0.22,
+      },
       bounds: {
         maxDistance: 11.55,
         maxTargetDelta: 0.85,
@@ -136,6 +148,38 @@ function getExteriorCamera() {
   };
 }
 
+function getExteriorCameraConstraints() {
+  const { constraints } = getExteriorPreset();
+
+  return {
+    useCameraConstraints: true,
+    usePanConstraints: true,
+    useZoomConstraints: true,
+    usePitchConstraints: true,
+    useYawConstraints: false,
+    zoomIn: constraints.zoomIn,
+    zoomOut: constraints.zoomOut,
+    left: -Math.PI,
+    right: Math.PI,
+    up: constraints.up,
+    down: constraints.down,
+  };
+}
+
+function setExteriorConstraintsEnabled(enabled) {
+  if (!sketchfabApi?.setCameraConstraints || !sketchfabApi?.setEnableCameraConstraints) return;
+
+  if (!enabled) {
+    sketchfabApi.setEnableCameraConstraints(false);
+    return;
+  }
+
+  sketchfabApi.setCameraConstraints(getExteriorCameraConstraints(), (error) => {
+    if (error) return;
+    sketchfabApi.setEnableCameraConstraints(true, { preventCameraConstraintsFocus: true });
+  });
+}
+
 function getExteriorPreset() {
   return window.innerWidth < 700 ? MODEL.exteriorCamera.mobile : MODEL.exteriorCamera.desktop;
 }
@@ -164,17 +208,23 @@ function isOutsideExteriorBounds(cameraState) {
   );
 }
 
-function restoreExteriorCamera(reason = "외관 최대 범위", duration = 0.45) {
+function restoreExteriorCamera(
+  statusText = "외관 고정 프레임으로 이동했습니다.",
+  duration = 0.45,
+  announce = true,
+) {
   if (!sketchfabApi || !sketchfabReady || isRestoringExteriorCamera) return;
 
   const camera = getExteriorCamera();
   isRestoringExteriorCamera = true;
+  setExteriorConstraintsEnabled(false);
   sketchfabApi.hideAnnotationTooltips?.();
   sketchfabApi.unselectAnnotation?.();
   sketchfabApi.setCameraLookAt(camera.position, camera.target, duration, (error) => {
     isRestoringExteriorCamera = false;
-    if (!error) {
-      setStatus(`${MODEL.title}: ${reason} 안으로 돌아왔습니다.`);
+    setExteriorConstraintsEnabled(true);
+    if (!error && announce) {
+      setStatus(`${MODEL.title}: ${statusText}`);
     }
   });
 }
@@ -184,7 +234,7 @@ function guardExteriorCamera() {
 
   sketchfabApi.getCameraLookAt((error, cameraState) => {
     if (error || !isOutsideExteriorBounds(cameraState)) return;
-    restoreExteriorCamera();
+    restoreExteriorCamera("외관 고정 프레임으로 이동했습니다.", 0.18, false);
   });
 }
 
@@ -208,10 +258,11 @@ function moveCamera(viewName) {
   }
 
   if (viewName === "exterior") {
-    restoreExteriorCamera("외관 고정 프레임", 0.8);
+    restoreExteriorCamera("외관 고정 프레임으로 이동했습니다.", 0.8);
     return;
   }
 
+  setExteriorConstraintsEnabled(false);
   const annotationIndex = getAnnotationIndex(viewName);
   if (annotationIndex === null) {
     setStatus(`${MODEL.title}: ${viewName} annotation을 찾지 못해 이동하지 않았습니다.`);
