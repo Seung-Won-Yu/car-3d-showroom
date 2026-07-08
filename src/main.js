@@ -32,32 +32,30 @@ const MODEL = {
     desktop: {
       position: [3.85, -0.55, 0.88],
       target: [0.33, -0.34, 0.1],
-      constraints: {
-        zoomIn: 2.35,
-        zoomOut: 4.15,
-        up: 0.88,
-        down: -0.24,
-      },
-      bounds: {
-        maxDistance: 4.15,
-        maxTargetDelta: 0.55,
-        maxHeightDelta: 0.75,
-      },
+      zoomIn: 2.35,
+      zoomOut: 4.15,
     },
     mobile: {
       position: [11.5, -0.85, 2.0],
       target: [0.33, -0.34, 0.1],
-      constraints: {
-        zoomIn: 7.8,
-        zoomOut: 11.55,
-        up: 0.9,
-        down: -0.22,
-      },
-      bounds: {
-        maxDistance: 11.55,
-        maxTargetDelta: 0.85,
-        maxHeightDelta: 1.1,
-      },
+      zoomIn: 7.8,
+      zoomOut: 11.55,
+    },
+  },
+  detailCameras: {
+    interior: {
+      position: [0.4135944854491955, 0.11356020909817466, 0.4766992571153902],
+      target: [0.2794878094865748, -0.38776405708327, 0.21682394800724927],
+      zoomIn: 0.22,
+      zoomOut: 1.05,
+      label: "실내",
+    },
+    wheel: {
+      position: [2.0947975627735005, -2.2538333221297835, 0.16602774263855016],
+      target: [0.3535156982153933, -0.349130046564729, 0.10409372688949156],
+      zoomIn: 0.9,
+      zoomOut: 3.15,
+      label: "휠",
     },
   },
 };
@@ -73,7 +71,7 @@ let spinAngle = 0;
 let spinTimer = null;
 let resizeTimer = null;
 let cameraGuardTimer = null;
-let isRestoringExteriorCamera = false;
+let isMovingCamera = false;
 
 function setStatus(message) {
   statusEl.textContent = message;
@@ -145,28 +143,57 @@ function getExteriorCamera() {
   return {
     position: [...preset.position],
     target: [...preset.target],
+    zoomIn: preset.zoomIn,
+    zoomOut: preset.zoomOut,
+    label: "외관",
   };
 }
 
-function getExteriorCameraConstraints() {
-  const { constraints } = getExteriorPreset();
+function getAnnotationCamera(viewName) {
+  const annotationIndex = getAnnotationIndex(viewName);
+  const annotation = Number.isInteger(annotationIndex) ? sketchfabAnnotations[annotationIndex] : null;
+  const position = toVector(annotation?.eye);
+  const target = toVector(annotation?.target);
+
+  if (!position || !target) return null;
+
+  return { position, target };
+}
+
+function getViewCamera(viewName) {
+  if (viewName === "exterior") return getExteriorCamera();
+
+  const fallback = MODEL.detailCameras[viewName];
+  const annotationCamera = getAnnotationCamera(viewName);
+
+  return {
+    position: annotationCamera?.position || [...fallback.position],
+    target: annotationCamera?.target || [...fallback.target],
+    zoomIn: fallback.zoomIn,
+    zoomOut: fallback.zoomOut,
+    label: fallback.label,
+  };
+}
+
+function getCameraConstraints(viewName) {
+  const camera = getViewCamera(viewName);
 
   return {
     useCameraConstraints: true,
-    usePanConstraints: true,
+    usePanConstraints: false,
     useZoomConstraints: true,
-    usePitchConstraints: true,
+    usePitchConstraints: false,
     useYawConstraints: false,
-    zoomIn: constraints.zoomIn,
-    zoomOut: constraints.zoomOut,
+    zoomIn: camera.zoomIn,
+    zoomOut: camera.zoomOut,
     left: -Math.PI,
     right: Math.PI,
-    up: constraints.up,
-    down: constraints.down,
+    up: Math.PI / 2,
+    down: -Math.PI / 2,
   };
 }
 
-function setExteriorConstraintsEnabled(enabled) {
+function setViewConstraintsEnabled(viewName, enabled) {
   if (!sketchfabApi?.setCameraConstraints || !sketchfabApi?.setEnableCameraConstraints) return;
 
   if (!enabled) {
@@ -174,67 +201,63 @@ function setExteriorConstraintsEnabled(enabled) {
     return;
   }
 
-  sketchfabApi.setCameraConstraints(getExteriorCameraConstraints(), (error) => {
+  sketchfabApi.setCameraConstraints(getCameraConstraints(viewName), (error) => {
     if (error) return;
     sketchfabApi.setEnableCameraConstraints(true, { preventCameraConstraintsFocus: true });
   });
-}
-
-function getExteriorPreset() {
-  return window.innerWidth < 700 ? MODEL.exteriorCamera.mobile : MODEL.exteriorCamera.desktop;
 }
 
 function getDistance(a, b) {
   return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 }
 
-function isOutsideExteriorBounds(cameraState) {
-  const preset = getExteriorPreset();
+function toVector(value) {
+  if (!Array.isArray(value) || value.length < 3) return null;
+
+  const vector = value.slice(0, 3).map(Number);
+  return vector.every(Number.isFinite) ? vector : null;
+}
+
+function isTooFarZoomedOut(cameraState, viewName) {
+  const preset = getViewCamera(viewName);
   const position = cameraState?.position;
   const target = cameraState?.target;
 
   if (!position || !target) return false;
 
-  const presetDistance = getDistance(preset.position, preset.target);
   const currentDistance = getDistance(position, target);
-  const targetDrift = getDistance(target, preset.target);
-  const heightDrift = Math.abs(position[2] - preset.position[2]);
 
-  return (
-    currentDistance > preset.bounds.maxDistance ||
-    currentDistance < presetDistance * 0.42 ||
-    targetDrift > preset.bounds.maxTargetDelta ||
-    heightDrift > preset.bounds.maxHeightDelta
-  );
+  return currentDistance > preset.zoomOut * 1.04;
 }
 
-function restoreExteriorCamera(
-  statusText = "외관 고정 프레임으로 이동했습니다.",
+function moveToViewCamera(
+  viewName,
+  statusText = null,
   duration = 0.45,
   announce = true,
 ) {
-  if (!sketchfabApi || !sketchfabReady || isRestoringExteriorCamera) return;
+  if (!sketchfabApi || !sketchfabReady || isMovingCamera) return;
 
-  const camera = getExteriorCamera();
-  isRestoringExteriorCamera = true;
-  setExteriorConstraintsEnabled(false);
+  const camera = getViewCamera(viewName);
+  isMovingCamera = true;
+  setViewConstraintsEnabled(viewName, false);
   sketchfabApi.hideAnnotationTooltips?.();
   sketchfabApi.unselectAnnotation?.();
   sketchfabApi.setCameraLookAt(camera.position, camera.target, duration, (error) => {
-    isRestoringExteriorCamera = false;
-    setExteriorConstraintsEnabled(true);
+    isMovingCamera = false;
+    setViewConstraintsEnabled(viewName, true);
     if (!error && announce) {
-      setStatus(`${MODEL.title}: ${statusText}`);
+      setStatus(`${MODEL.title}: ${statusText || `${camera.label} 시점으로 이동했습니다.`}`);
     }
   });
 }
 
-function guardExteriorCamera() {
-  if (!sketchfabApi || !sketchfabReady || activeView !== "exterior" || autoSpin) return;
+function guardActiveViewZoom() {
+  if (!sketchfabApi || !sketchfabReady || isMovingCamera || autoSpin) return;
 
   sketchfabApi.getCameraLookAt((error, cameraState) => {
-    if (error || !isOutsideExteriorBounds(cameraState)) return;
-    restoreExteriorCamera("외관 고정 프레임으로 이동했습니다.", 0.18, false);
+    if (error || !isTooFarZoomedOut(cameraState, activeView)) return;
+    moveToViewCamera(activeView, null, 0.18, false);
   });
 }
 
@@ -257,34 +280,12 @@ function moveCamera(viewName) {
     return;
   }
 
-  if (viewName === "exterior") {
-    restoreExteriorCamera("외관 고정 프레임으로 이동했습니다.", 0.8);
-    return;
-  }
-
-  setExteriorConstraintsEnabled(false);
-  const annotationIndex = getAnnotationIndex(viewName);
-  if (annotationIndex === null) {
+  if (viewName !== "exterior" && !MODEL.detailCameras[viewName]) {
     setStatus(`${MODEL.title}: ${viewName} annotation을 찾지 못해 이동하지 않았습니다.`);
     return;
   }
 
-  sketchfabApi.showAnnotationTooltips?.();
-  sketchfabApi.gotoAnnotation(
-    annotationIndex,
-    { preventCameraAnimation: false, preventCameraMove: false },
-    (error, selectedIndex) => {
-      if (error) {
-        setStatus(`${MODEL.title}: 시점 이동에 실패했습니다. 잠시 후 다시 눌러보세요.`);
-        return;
-      }
-
-      const resolvedIndex = Number.isInteger(selectedIndex) ? selectedIndex : annotationIndex;
-      const annotation = sketchfabAnnotations[resolvedIndex];
-      const label = annotation?.name || annotation?.title || `${resolvedIndex + 1}번 annotation`;
-      setStatus(`${MODEL.title}: ${label} 시점으로 이동했습니다.`);
-    },
-  );
+  moveToViewCamera(viewName, null, 0.8);
 }
 
 function setAutoSpin(enabled) {
@@ -300,7 +301,7 @@ function setAutoSpin(enabled) {
   }
 
   autoSpin = true;
-  const base = getExteriorCamera();
+  const base = getViewCamera("exterior");
   const { position, target } = base;
   const offset = [
     position[0] - target[0],
@@ -371,7 +372,7 @@ function initViewer() {
         api.setCameraEasing?.("easeOutCubic");
         api.addEventListener("camerastop", () => {
           clearTimeout(cameraGuardTimer);
-          cameraGuardTimer = setTimeout(guardExteriorCamera, 140);
+          cameraGuardTimer = setTimeout(guardActiveViewZoom, 140);
         });
         api.getCameraLookAt((cameraError, cameraState) => {
           if (!cameraError && cameraState) {
@@ -391,7 +392,7 @@ function initViewer() {
                   }),
                 forceCamera: (position, target) =>
                   sketchfabApi.setCameraLookAt(position, target, 0.1),
-                guardExteriorCamera,
+                guardActiveViewZoom,
               };
             }
             moveCamera(pendingView);
