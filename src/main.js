@@ -28,12 +28,15 @@ const MODEL = {
     interior: ["interior", "steering", "gear", "pedal", "seat"],
     wheel: ["wheel", "tyre", "tire", "rim"],
   },
-  exteriorFit: {
-    desktopBaseScale: 0.07,
-    mobileBaseScale: 0.24,
-    minScale: 0.052,
-    maxScale: 0.14,
-    mobileMaxScale: 0.42,
+  exteriorCamera: {
+    desktop: {
+      position: [3.85, -0.55, 0.88],
+      target: [0.33, -0.34, 0.1],
+    },
+    mobile: {
+      position: [11.5, -0.85, 2.0],
+      target: [0.33, -0.34, 0.1],
+    },
   },
 };
 
@@ -47,10 +50,6 @@ let autoSpin = false;
 let spinAngle = 0;
 let spinTimer = null;
 let resizeTimer = null;
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
 
 function setStatus(message) {
   statusEl.textContent = message;
@@ -116,44 +115,12 @@ function getAnnotationIndex(viewName) {
   return foundIndex >= 0 ? foundIndex : null;
 }
 
-function getExteriorFitScale() {
-  const { exteriorFit } = MODEL;
-  const { innerWidth: width, innerHeight: height } = window;
-
-  if (width < 700) {
-    const usableHeight = Math.max(height - 420, 220);
-    const heightFactor = clamp(usableHeight / 420, 0.58, 1.15);
-    return clamp(
-      exteriorFit.mobileBaseScale / heightFactor,
-      exteriorFit.minScale,
-      exteriorFit.mobileMaxScale,
-    );
-  }
-
-  const usableWidth = Math.max(width - 480, width * 0.62);
-  const usableHeight = Math.max(height - 280, height * 0.56);
-  const fitFactor = clamp(Math.min(usableWidth / 960, usableHeight / 620), 0.5, 1.45);
-
-  return clamp(
-    exteriorFit.desktopBaseScale / fitFactor,
-    exteriorFit.minScale,
-    exteriorFit.maxScale,
-  );
-}
-
 function getExteriorCamera() {
-  const base =
-    sketchfabDefaultCamera || {
-      position: [7, 3, 7],
-      target: [0, 0.7, 0],
-    };
-  const target = [...base.target];
-  const position = [...base.position];
-  const distanceScale = getExteriorFitScale();
+  const preset = window.innerWidth < 700 ? MODEL.exteriorCamera.mobile : MODEL.exteriorCamera.desktop;
 
   return {
-    target,
-    position: position.map((value, index) => target[index] + (value - target[index]) * distanceScale),
+    position: [...preset.position],
+    target: [...preset.target],
   };
 }
 
